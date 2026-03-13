@@ -2,39 +2,54 @@ from typing import Annotated
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode
 from langchain_ollama import ChatOllama
 from typing_extensions import TypedDict
+from tools import all_tools as tools
 
 
 # 1. State — list of messages (add_messages appends instead of overwriting)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-# 2. LLM
+
+# 3. LLM — bind tools so it knows they exist
 llm = ChatOllama(model="gpt-oss:120b-cloud")
+llm_with_tools = llm.bind_tools(tools)
 
 
-# 3. Node — passes full message history to LLM
+# 4. Nodes
 def chatbot_node(state: State) -> State:
-    response = llm.invoke(state["messages"])
+    response = llm_with_tools.invoke(state["messages"])
     return {"messages": [response]}
 
+# ToolNode automatically calls whichever tool the LLM requested
+tool_node = ToolNode(tools)
+
+# 5. Conditional edge — did the LLM call a tool or is it done?
+def should_use_tool(state: State) -> str:
+    last_message = state["messages"][-1]
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "tool"
+    return END
+
+
+# 6. Build graph
 builder = StateGraph(State)
+builder.add_node("chatbot", chatbot_node)
+builder.add_node("tool", tool_node)
 
-#define nodes, which does function
-builder.add_node("chatbot",chatbot_node)
-
-#define graph: how flow works
-builder.add_edge(START,"chatbot")
-builder.add_edge("chatbot",END)
+builder.add_edge(START, "chatbot")
+builder.add_conditional_edges("chatbot", should_use_tool)  # branches to "tool" or END
+builder.add_edge("tool", "chatbot")  # after tool runs, go back to LLM
 
 
 graph = builder.compile(checkpointer=MemorySaver())
 
 
-#5. Chat Loop
+# 7. Chat loop
 def chat():
-    print("Chatbot, ready. Type quit to exit \n")
+    print("Chatbot ready. Type 'quit' to exit.\n")
     while True:
         user_input = input("You: ")
         if user_input.lower() == "quit":
@@ -44,4 +59,4 @@ def chat():
         print(f"Bot: {result['messages'][-1].content}\n")
 
 if __name__ == "__main__":
-  chat()
+    chat()
