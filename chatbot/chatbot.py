@@ -1,5 +1,6 @@
 from typing import Annotated
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import interrupt,Command
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
@@ -34,13 +35,25 @@ def should_use_tool(state: State) -> str:
     return END
 
 
+def human_approval(state: State) -> State:
+    last_message = state["messages"][-1]
+    tool_name = last_message.tool_calls[0]["name"]
+    tool_args = last_message.tool_calls[0]["args"]
+
+    decision = interrupt(f"LLM wants to call tool {tool_name} with args {tool_args}. Approve? (yes/no)")
+    if decision.lower() != "yes":
+        return {"messages": [{"role": "tool", "content": "Tool call denied by user.", "tool_call_id": last_message.tool_calls[0]["id"]}]}
+    return state
+
 # 6. Build graph
 builder = StateGraph(State)
 builder.add_node("chatbot", chatbot_node)
 builder.add_node("tool", tool_node)
+builder.add_node("human_approval", human_approval)
 
 builder.add_edge(START, "chatbot")
-builder.add_conditional_edges("chatbot", should_use_tool)  # branches to "tool" or END
+builder.add_conditional_edges("chatbot", should_use_tool,{"tool":"human_approval",END:END})  # branches to "tool" or END
+builder.add_edge("human_approval", "tool")
 builder.add_edge("tool", "chatbot")  # after tool runs, go back to LLM
 
 
@@ -56,6 +69,13 @@ def chat():
             break
         config = {"configurable": {"thread_id": "1"}}
         result = graph.invoke({"messages": [{"role": "user", "content": user_input}]}, config)
+        # graph paused at interrupt — ask human
+        while result.get("__interrupt__"):
+            approval_prompt = result["__interrupt__"][0].value
+            print(f"\n[APPROVAL NEEDED] {approval_prompt}")
+            decision = input("Your decision: ")
+            result = graph.invoke(Command(resume=decision), config)
+
         print(f"Bot: {result['messages'][-1].content}\n")
 
 if __name__ == "__main__":
