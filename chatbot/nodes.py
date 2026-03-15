@@ -1,21 +1,20 @@
 from langgraph.graph import END
 from langgraph.types import interrupt
-from langgraph.prebuilt import ToolNode
 from langchain_ollama import ChatOllama
-from tools import all_tools as tools
 from chatbot.state import State
 
 
 llm = ChatOllama(model="gpt-oss:120b-cloud")
-llm_with_tools = llm.bind_tools(tools)
 
 
-def chatbot_node(state: State) -> State:
-    response = llm_with_tools.invoke(state["messages"])
-    return {"messages": [response]}
+def make_chatbot_node(tools):
+    llm_with_tools = llm.bind_tools(tools)
 
+    def chatbot_node(state: State) -> State:
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
 
-tool_node = ToolNode(tools)
+    return chatbot_node
 
 
 def should_use_tool(state: State) -> str:
