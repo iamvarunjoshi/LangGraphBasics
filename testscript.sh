@@ -1,7 +1,3 @@
-## Basic Chat App
-
-## Starting Service in Local
-`````shell
 python3 -m venv .venv                                                                                                         
 source .venv/bin/activate                                                                                                     
                                                                                                                                 
@@ -9,7 +5,4 @@ source .venv/bin/activate
 python3 -m pip install -r requirements.txt                                                                                    
                                                                                                                                 
   # Run the chatbot                                                                                                             
-PYTHONPATH=. python3 -m chatbot.main   
-
-python basics/minimal_graph.py
-`````
+PYTHONPATH=. python3 -m chatbot.main 
